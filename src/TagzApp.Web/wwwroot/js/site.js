@@ -3,9 +3,9 @@
 	var connection;
 
 	const ModerationState = {
-		Pending		: 0,
-		Approved	: 1,
-		Rejected	: 2
+		Pending: 0,
+		Approved: 1,
+		Rejected: 2
 	}
 
 	const taggedContent = document.getElementById("taggedContent");
@@ -24,7 +24,7 @@
 				} else {
 					window.Masonry.resizeGridItem(node);
 				}
-            }
+			}
 		}
 	});
 	const observerConfig = {
@@ -47,7 +47,7 @@
 
 	};
 
-	function FormatMessage(content) {
+	function FormatMessage(content, additionalClass, onclick, onmouseenter) {
 
 		if (taggedContent.querySelector(".spinner-border")) {
 			taggedContent.querySelector(".spinner-border").remove();
@@ -56,6 +56,17 @@
 		if (document.querySelector("[data-providerid='" + content.providerId + "']")) return;
 
 		const newMessage = document.createElement("article");
+
+		if (additionalClass) {
+			if (additionalClass.constructor === Array) {
+				for (const cssClass of additionalClass) {
+					newMessage.classList.add(cssClass);
+				}
+			} else {
+				newMessage.classList.add(additionalClass);
+			}
+		}
+
 		newMessage.setAttribute("data-url", content.sourceUri);
 		newMessage.setAttribute("data-provider", content.provider);
 		newMessage.setAttribute("data-providerid", content.providerId);
@@ -73,50 +84,59 @@
 		<div class="content">${content.text}</div>`;
 
 		if (content.previewCard) {
+			const tag = content.previewCard.imageUri.split('.').pop() == "mp4" ? "video muted='muted' controls='controls' autoplay" : "img";
 			newMessage.innerHTML += `
 				<div class="contentcard">
-					<img src="${content.previewCard.imageUri}" class="card-img-top" alt="${content.previewCard.altText}" />
+					<${tag} src="${content.previewCard.imageUri}" class="card-img-top" alt="${content.previewCard.altText}" />
 				</div>
 			`
 		}
 
-		newMessage.addEventListener("click", function (ev) {
+		if (onclick) {
+		} else {
+			newMessage.addEventListener("click", function (ev) {
 
-			var el = ev.target.closest('article');
+				var el = ev.target.closest('article');
 
-			connection.invoke("SendMessageToOverlay", window.TagzApp.Tags[0], el.getAttribute("data-provider"), el.getAttribute("data-providerid"));
+				connection.invoke("SendMessageToOverlay", window.TagzApp.Tags[0], el.getAttribute("data-provider"), el.getAttribute("data-providerid"));
 
-			// Format Modal
-			let modalProfilePic = document.querySelector(".modal-header img");
-			modalProfilePic.src = content.authorProfileImageUri;
-			modalProfilePic.alt = content.authorDisplayName;
+				// Format Modal
+				let modalProfilePic = document.querySelector(".modal-header img");
+				modalProfilePic.src = content.authorProfileImageUri;
+				modalProfilePic.alt = content.authorDisplayName;
 
-			document.querySelector(".modal-header .author").innerText = content.authorDisplayName;
+				document.querySelector(".modal-header .author").innerText = content.authorDisplayName;
 
-			let modalAuthorUserName = document.querySelector(".modal-header .authorUserName");
-			modalAuthorUserName.setAttribute("title", content.authorUserName);
-			modalAuthorUserName.innerText = content.authorUserName;
+				let modalAuthorUserName = document.querySelector(".modal-header .authorUserName");
+				modalAuthorUserName.setAttribute("title", content.authorUserName);
+				modalAuthorUserName.innerText = content.authorUserName;
 
-			let modalProvider = document.querySelector(".modal-header .bi");
-			modalProvider.setAttribute("class", "");
-			modalProvider.classList.add('provider', 'bi', `bi-${content.provider.toLowerCase()}`);
+				let modalProvider = document.querySelector(".modal-header .bi");
+				modalProvider.setAttribute("class", "");
+				modalProvider.classList.add('provider', 'bi', `bi-${content.provider.toLowerCase()}`);
 
-			document.querySelector(".modal-header .time").innerText = `${newMessageTime.toLocaleString(undefined, { day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
+				document.querySelector(".modal-header .time").innerText = `${newMessageTime.toLocaleString(undefined, { day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
 
-			let modalBody = document.querySelector(".modal-body").innerHTML = content.text;
+				let modalBody = document.querySelector(".modal-body").innerHTML = content.text;
 
-			if (content.previewCard) {
-				document.querySelector(".modal-body").innerHTML += `
+				if (content.previewCard) {
+					const tag = content.previewCard.imageUri.split('.').pop() == "mp4" ? "video muted='muted' controls='controls' autoplay" : "img";
+					document.querySelector(".modal-body").innerHTML += `
 				<div class="contentcard">
-					<img src="${content.previewCard.imageUri}" class="card-img-top" alt="${content.previewCard.altText}" />
+					<${tag} src="${content.previewCard.imageUri}" class="card-img-top" alt="${content.previewCard.altText}" />
 				</div>
 			`
-			}
+				}
 
-			let modalWindow = new bootstrap.Modal(document.getElementById("contentModal"));
-			modalWindow.show();
+				let modalWindow = new bootstrap.Modal(document.getElementById("contentModal"));
+				modalWindow.show();
 
-		});
+			});
+		}
+
+		if (onmouseenter) {
+			newMessage.addEventListener("mouseenter", onmouseenter);
+		}
 
 		const newest = getDateFromElement(taggedContent.firstElementChild);
 		const oldest = getDateFromElement(taggedContent.lastElementChild);
@@ -134,55 +154,32 @@
 
 	function FormatMessageForModeration(content) {
 
-		if (taggedContent.querySelector(".spinner-border")) {
-			taggedContent.querySelector(".spinner-border").remove();
+		var moreClasses = ["moderation"];
+		if (content.state == ModerationState.Approved) moreClasses.push("status-approved");
+		if (content.state == ModerationState.Rejected) moreClasses.push("status-rejected");
+
+		FormatMessage(content, moreClasses, showModerationPanel, showModerationPanel);
+
+	}
+
+	function ApproveMessage(content) {
+
+		var card = document.querySelector(`[data-providerid='${content.providerId}']`);
+
+		if (card) {
+			card.classList.remove("status-rejected");
+			card.classList.add("status-approved");
 		}
 
-		if (document.querySelector("[data-providerid='" + content.providerId + "']")) return;
+	}
 
-		const newMessage = document.createElement("article");
-		newMessage.classList.add("moderation");
+	function RejectMessage(content) {
 
-		if (content.state == ModerationState.Approved) newMessage.classList.add("status-approved");
-		if (content.state == ModerationState.Rejected) newMessage.classList.add("status-rejected");
+		var card = document.querySelector(`[data-providerid='${content.providerId}']`);
 
-		newMessage.setAttribute("data-url", content.sourceUri);
-		newMessage.setAttribute("data-provider", content.provider);
-		newMessage.setAttribute("data-providerid", content.providerId);
-		const newMessageTime = new Date(content.timestamp);
-		newMessage.setAttribute("data-timestamp", newMessageTime.toISOString());
-		newMessage.innerHTML = `
-		<img class="ProfilePicture" src="${content.authorProfileImageUri}" alt="${content.authorDisplayName}" />
-		<div class="byline">
-			<div class="author">${content.authorDisplayName}</div>
-			<div class="authorUserName" title="${content.authorUserName}">${content.authorUserName}</div>
-		</div>
-		<i class="provider bi bi-${content.provider.toLowerCase()}"></i>
-		<div class="time">${newMessageTime.toLocaleString(undefined, { day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
-
-		<div class="content">${content.text}</div>`;
-
-		if (content.previewCard) {
-			newMessage.innerHTML += `
-				<div class="contentcard">
-					<img src="${content.previewCard.imageUri}" class="card-img-top" alt="${content.previewCard.altText}" />
-				</div>
-			`
-		}
-
-		newMessage.addEventListener("mouseenter", showModerationPanel);
-		newMessage.addEventListener("click", showModerationPanel);		// for touch-screen support
-
-		const newest = getDateFromElement(taggedContent.firstElementChild);
-		const oldest = getDateFromElement(taggedContent.lastElementChild);
-		if (newest === null || (newest <= newMessageTime)) {
-			taggedContent.prepend(newMessage);
-		} else if (oldest !== null && (oldest > newMessageTime)) {
-			taggedContent.append(newMessage);
-		} else {
-			const times = [...taggedContent.children].map(article => getDateFromElement(article));
-			const index = getIndexForValue(times, newMessageTime);
-			taggedContent.insertBefore(newMessage, taggedContent.children[index]);
+		if (card) {
+			card.classList.remove("status-approved");
+			card.classList.add("status-rejected");
 		}
 
 	}
@@ -237,9 +234,9 @@
 
 	function getIndexForValue(list, value) {
 		let low = 0;
-        let high = list.length - 1;
+		let high = list.length - 1;
 
-        while (low <= high) {
+		while (low <= high) {
 			let mid = (low + high) >>> 1;
 			let guess = list[mid];
 
@@ -252,8 +249,8 @@
 			}
 		}
 
-        return low;
-    }
+		return low;
+	}
 
 	const t = {
 
@@ -307,6 +304,14 @@
 
 			connection.on("NewWaterfallMessage", (content) => {
 				FormatMessageForModeration(content);
+			});
+
+			connection.on("NewApprovedMessage", (content) => {
+				ApproveMessage(content);
+			});
+
+			connection.on("NewRejectedMessage", (content) => {
+				RejectMessage(content);
 			});
 
 			// Start the connection.

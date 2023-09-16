@@ -1,17 +1,24 @@
-﻿using System.IO.Compression;
+using Microsoft.Extensions.Logging;
+
+using System.IO.Compression;
 using System.Net.Http.Json;
 using System.Reflection;
 using System.Text.Json;
 using System.Web;
-using TagzApp.Common.Models;
+
+using Microsoft.Extensions.Options;
+
+using TagzApp.Providers.Twitter.Configuration;
 using TagzApp.Providers.Twitter.Models;
+using TagzApp.Web.Services;
 
 namespace TagzApp.Providers.Twitter;
 
-public class TwitterProvider : ISocialMediaProvider
+public class TwitterProvider : ISocialMediaProvider, IHasNewestId
 {
 	private readonly HttpClient _HttpClient;
-
+	private readonly TwitterConfiguration _Configuration;
+	private readonly ILogger<TwitterProvider> _Logger;
 	private const string _SearchFields = "created_at,author_id,entities";
 	private const int _SearchMaxResults = 100;
 	private const string _SearchExpansions = "author_id,attachments.media_keys";
@@ -22,18 +29,22 @@ public class TwitterProvider : ISocialMediaProvider
 
 	public static int MaxContentPerHashtag { get; set; } = 100;
 
-	private string _NewestId = string.Empty;
+	public string NewestId { get; set; } = string.Empty;
 
-	public TwitterProvider(IHttpClientFactory httpClientFactory)
+	public TwitterProvider(IHttpClientFactory httpClientFactory, IOptions<TwitterConfiguration> options, ILogger<TwitterProvider> logger)
 	{
 		_HttpClient = httpClientFactory.CreateClient(nameof(TwitterProvider));
+		_Configuration = options.Value;
+		_Logger = logger;
 	}
-
+	// TODO: Check CS1998: Async method lacks 'await' operators and will run synchronously
+#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
 	public async Task<IEnumerable<Content>> GetContentForHashtag(Common.Models.Hashtag tag, DateTimeOffset since)
+#pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
 	{
 
 		var tweetQuery = "#" + tag.Text.ToLowerInvariant().TrimStart('#') + " -is:retweet";
-		var sinceTerm = string.IsNullOrEmpty(_NewestId) ? "" : $"&since_id={_NewestId}";
+		var sinceTerm = string.IsNullOrEmpty(NewestId) ? "" : $"&since_id={NewestId}";
 
 		var targetUri = FormatUri(tweetQuery, sinceTerm);
 
@@ -41,35 +52,39 @@ public class TwitterProvider : ISocialMediaProvider
 		try
 		{
 
-#if TWITTER_LIVE
-
-			var response = await _HttpClient.GetAsync(targetUri);
-			var rawText = await response.Content.ReadAsStringAsync();
-
-			recentTweets = await _HttpClient.GetFromJsonAsync<TwitterData>(targetUri);
-			_NewestId = recentTweets.meta.newest_id ?? _NewestId;
-#else
-
-			var assembly = Assembly.GetExecutingAssembly();
-			var resourceName = "TagzApp.Providers.Twitter.Models.SampleTweets.json.gz";
-			string sampleJson = string.Empty;
-
-			using var stream = assembly.GetManifestResourceStream(resourceName);
-			if (stream is not null)
+			if (_Configuration.Activated)
 			{
-				using var unzip = new GZipStream(stream, CompressionMode.Decompress);
-				var embeddedTweets = JsonSerializer.Deserialize<TwitterData>(unzip);
-				if (embeddedTweets is not null) recentTweets = embeddedTweets;
+
+				//var response = await _HttpClient.GetAsync(targetUri);
+				//var rawText = await response.Content.ReadAsStringAsync();
+
+				recentTweets = await _HttpClient.GetFromJsonAsync<TwitterData>(targetUri);
+				NewestId = recentTweets.meta.newest_id ?? NewestId;
+
 			}
-#endif
+			else
+			{
+
+				var assembly = Assembly.GetExecutingAssembly();
+				var resourceName = "TagzApp.Providers.Twitter.Models.SampleTweets.json.gz";
+				string sampleJson = string.Empty;
+
+				using var stream = assembly.GetManifestResourceStream(resourceName);
+				if (stream is not null)
+				{
+					using var unzip = new GZipStream(stream, CompressionMode.Decompress);
+					var embeddedTweets = JsonSerializer.Deserialize<TwitterData>(unzip);
+					if (embeddedTweets is not null) recentTweets = embeddedTweets;
+				}
+
+			}
 
 		}
 		catch (Exception ex)
 		{
-			Console.WriteLine(ex.Message);
+			Console.WriteLine($"Error retrieving tweets: {ex.Message}");
+			_Logger.LogError(ex, $"Error retrieving tweets");
 		}
-
-		var authorIds = recentTweets?.data.Select(t => t.author_id).Distinct().ToArray() ?? Array.Empty<string>();
 
 		var outTweets = ConvertToContent(recentTweets, tag);
 
@@ -85,7 +100,7 @@ public class TwitterProvider : ISocialMediaProvider
 
 		var outContent = new List<Content>();
 
-		foreach (var t in recentTweets.data)
+		foreach (var t in recentTweets.data!)
 		{
 
 			var author = recentTweets.includes.users.FirstOrDefault(u => u.id == t.author_id);
@@ -167,7 +182,8 @@ public class TwitterProvider : ISocialMediaProvider
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine(ex.Message);
+				Console.WriteLine($"Error formatting twee ('{t.text}'): ${ex.Message}");
+				_Logger.LogError(ex, $"Error formatting tweet: {t.text}");
 			}
 
 		}
